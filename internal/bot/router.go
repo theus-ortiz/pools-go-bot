@@ -12,7 +12,8 @@ func MessageRouter(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	cmd := strings.ToLower(strings.TrimSpace(m.Content[1:]))
+	cmdParts := strings.Fields(strings.ToLower(strings.TrimSpace(m.Content[1:])))
+	cmd := cmdParts[0]
 
 	if handler, ok := handlers.Commands[cmd]; ok {
 		handler(s, m)
