@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	DiscordToken string
+	GraphAPIKey  string
 }
 
 var (
@@ -26,6 +27,7 @@ func Load() *Config {
 
 		cfg = &Config{
 			DiscordToken: mustGetEnv("DISCORD_TOKEN"),
+			GraphAPIKey:  mustGetEnv("GRAPH_API_KEY"),
 		}
 	})
 

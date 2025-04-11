@@ -1,0 +1,9 @@
+{
+  positions(where: {owner: "%s"}) {
+    id
+    depositedToken0
+    depositedToken1
+    withdrawnToken0
+    withdrawnToken1
+  }
+}
