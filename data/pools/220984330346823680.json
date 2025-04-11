@@ -5,16 +5,6 @@
       "id": "1",
       "address": "0xb8566807fBBa74c6c35FD6C2Af2094C4Ba4104ED",
       "network": "base"
-    },
-    {
-      "id": "3",
-      "address": "0xb8566807fBBa74c6c35FD6C2Af2094C4Ba4104ED",
-      "network": "ethereum"
-    },
-    {
-      "id": "3",
-      "address": "0xb8566807fBBa74c6c35FD6C2Af2094C4Ba4104ED",
-      "network": "polygon"
     }
   ]
 }
