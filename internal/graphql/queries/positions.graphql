@@ -1,0 +1,12 @@
+{
+  positions(where: {owner: "{{WALLET_ADDRESS}}"}) {
+    id
+    liquidity
+    depositedToken0
+    depositedToken1
+    withdrawnToken0
+    withdrawnToken1
+    amountWithdrawnUSD
+    amountDepositedUSD
+  }
+}

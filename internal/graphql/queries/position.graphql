@@ -1,0 +1,32 @@
+{
+  position(id: "{{POSITION_ID}}") {
+    id
+    liquidity
+    tickLower {
+      tickIdx
+    }
+    tickUpper {
+      tickIdx
+    }
+    depositedToken0
+    depositedToken1
+    withdrawnToken0
+    withdrawnToken1
+    collectedFeesToken0
+    collectedFeesToken1
+    pool {
+      id
+      token0 {
+        symbol
+        decimals
+      }
+      token1 {
+        symbol
+        decimals
+      }
+      tick
+      sqrtPrice
+      feeTier
+    }
+  }
+}

@@ -3,6 +3,7 @@ package graphql
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func ReadQuery(filename string) (string, error) {
@@ -13,4 +14,8 @@ func ReadQuery(filename string) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+func ReplaceQueryVariable(query, placeholder, value string) string {
+	return strings.ReplaceAll(query, placeholder, value)
 }

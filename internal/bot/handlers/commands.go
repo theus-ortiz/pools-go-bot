@@ -13,7 +13,8 @@ var Commands = map[string]func(*discordgo.Session, *discordgo.MessageCreate){
 	"help":  Help,
 	"ajuda": Help,
 	"addwallet":  AddWalletCommand,
-	"carteiras": CarteirasCommand,
-	"excluir": ExcluirCommand,
-	"resumo": HandleUserPools,
+	"carteiras": ListWalletsCommand,
+	"excluir": DeleteWalletCommand,
+	"resumo": ListPositionsCommand,
+	"pools": ListDetailedPositionsCommand,
 }

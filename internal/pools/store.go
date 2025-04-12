@@ -20,22 +20,21 @@ func getUserFilePath(userID string) string {
 
 func LoadUserPools(userID string) (*UserPools, error) {
 	if err := ensureDataDir(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
 	path := getUserFilePath(userID)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return &UserPools{Owner: userID, Positions: []Position{}}, nil
-	}
-
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return &UserPools{Owner: userID}, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read user file: %w", err)
 	}
 
 	var userPools UserPools
 	if err := json.Unmarshal(data, &userPools); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal user pools: %w", err)
 	}
 
 	return &userPools, nil
@@ -46,35 +45,30 @@ func SaveUserPools(pools *UserPools) error {
 		return err
 	}
 
-	path := getUserFilePath(pools.Owner)
 	data, err := json.MarshalIndent(pools, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(getUserFilePath(pools.Owner), data, 0644)
 }
 
-func AddPool(userID, address, network string) error {
+func AddPosition(userID, address, network string) error {
 	userPools, err := LoadUserPools(userID)
 	if err != nil {
 		return err
 	}
 
-	// Evita duplicidade
 	for _, pos := range userPools.Positions {
 		if pos.Address == address && pos.Network == network {
-			return fmt.Errorf("esta pool já foi adicionada")
+			return fmt.Errorf("position already exists")
 		}
 	}
 
-	newPosition := Position{
-		ID:      fmt.Sprintf("%d", len(userPools.Positions)+1),
+	userPools.Positions = append(userPools.Positions, Position{
 		Address: address,
 		Network: network,
-	}
-
-	userPools.Positions = append(userPools.Positions, newPosition)
+	})
 
 	return SaveUserPools(userPools)
 }
