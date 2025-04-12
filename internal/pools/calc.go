@@ -3,20 +3,11 @@ package pools
 import (
 	"fmt"
 	"math"
+	"math/big"
+	"strconv"
+
+	"github.com/theus-ortiz/pools-bot/internal/graphql"
 )
-
-// PriceFromTick calcula o preço da cripto em USDC (AAVE/USDC)
-func PriceFromTick(tick int) float64 {
-	return 1 / math.Pow(1.0001, float64(tick))
-}
-
-// Inverte o preço (de AAVE/USDC para USDC/AAVE)
-func InvertPrice(p float64) float64 {
-	if p == 0 {
-		return 0
-	}
-	return 1 / p
-}
 
 type PoolData struct {
 	Token0Symbol    string
@@ -32,43 +23,77 @@ type PoolData struct {
 	TickLower       int
 	TickUpper       int
 	CurrentTick     int
-	Token1USDPrice  float64 // valor de AAVE em dólar
+	Token1USDPrice  float64
 }
 
-func FormatPoolSummary(data PoolData) string {
-	// Faixas
-	priceMin := PriceFromTick(data.TickUpper)
-	priceMax := PriceFromTick(data.TickLower)
+// Calcula preço a partir de sqrtPrice
+func GetPriceFromSqrtPrice(sqrtPriceStr string) float64 {
+	sqrtPrice, ok := new(big.Int).SetString(sqrtPriceStr, 10)
+	if !ok {
+		return 0
+	}
 
-	// Invertido
-	priceMinInv := InvertPrice(priceMin)
-	priceMaxInv := InvertPrice(priceMax)
+	sqrtPriceFloat := new(big.Float).SetInt(sqrtPrice)
+	twoPow96 := new(big.Float).SetFloat64(math.Pow(2, 96))
+	ratio := new(big.Float).Quo(sqrtPriceFloat, twoPow96)
 
-	// Liquidez efetiva (em tokens)
-	liq0 := data.DepositedToken0 - data.WithdrawnToken0
-	liq1 := data.DepositedToken1 - data.WithdrawnToken1
+	price := new(big.Float).Mul(ratio, ratio)
+	result, _ := price.Float64()
+	return result
+}
 
-	// Valor atual da posição (considerando o valor da cripto)
-	capital := liq0 + (liq1 * data.Token1USDPrice)
+// Constrói PoolData a partir de PositionDetailed
+func BuildPoolDataFromPosition(p graphql.PositionDetailed) PoolData {
+	// Converte strings para números
+	parse := func(s string) float64 {
+		f, _ := strconv.ParseFloat(s, 64)
+		return f
+	}
 
-	// Tarifas em USD
-	feesUSD := data.CollectedFees0 + (data.CollectedFees1 * data.Token1USDPrice)
+	tickLower, _ := strconv.Atoi(p.TickLower.TickIdx)
+	tickUpper, _ := strconv.Atoi(p.TickUpper.TickIdx)
+	currentTick, _ := strconv.Atoi(p.Pool.Tick)
+	dec0, _ := strconv.Atoi(p.Pool.Token0.Decimals)
+	dec1, _ := strconv.Atoi(p.Pool.Token1.Decimals)
 
-	// String final
-	return fmt.Sprintf(`
-📊 Resumo da Pool %s/%s
+	price := GetPriceFromSqrtPrice(p.Pool.SqrtPrice)
 
-🔸 Faixa: %.5f → %.5f %s/%s
-🔸 Faixa: %.2f → %.2f %s/%s
+	var token1USDPrice float64
+	if p.Pool.Token0.Symbol == "USDC" {
+		token1USDPrice = 1.0 / price
+	} else if p.Pool.Token1.Symbol == "USDC" {
+		token1USDPrice = 1.0 * price
+	} else {
+		token1USDPrice = 0 // Nenhum dos tokens é USDC
+	}
 
-🔸 Posição estimada: ≈ %.2f US$
-🔸 Tarifas acumuladas: ≈ %.2f US$
-🔸 🧮 Liquidez bruta (tokens): %.3f %s + %.4f %s
-🔸 🧮 Liquidez USD: %.3f USDC + %.2f US$ (%.4f %s × %.2f US$)
-`, data.Token0Symbol, data.Token1Symbol,
-		priceMin, priceMax, data.Token1Symbol, data.Token0Symbol,
-		priceMaxInv, priceMinInv, data.Token0Symbol, data.Token1Symbol,
-		capital, feesUSD,
-		liq0, data.Token0Symbol, liq1, data.Token1Symbol,
-		liq0, liq1*data.Token1USDPrice, liq1, data.Token1Symbol, data.Token1USDPrice)
+	return PoolData{
+		Token0Symbol:    p.Pool.Token0.Symbol,
+		Token1Symbol:    p.Pool.Token1.Symbol,
+		Decimals0:       dec0,
+		Decimals1:       dec1,
+		DepositedToken0: parse(p.DepositedToken0),
+		WithdrawnToken0: parse(p.WithdrawnToken0),
+		DepositedToken1: parse(p.DepositedToken1),
+		WithdrawnToken1: parse(p.WithdrawnToken1),
+		CollectedFees0:  parse(p.CollectedFeesToken0),
+		CollectedFees1:  parse(p.CollectedFeesToken1),
+		TickLower:       tickLower,
+		TickUpper:       tickUpper,
+		CurrentTick:     currentTick,
+		Token1USDPrice:  token1USDPrice,
+	}
+}
+
+func FormatPoolSummary(p PoolData) string {
+	return fmt.Sprintf(
+		"💧 Token0 (%s): depositado `%.2f`, retirado `%.2f`, fees `%.2f`\n"+
+			"💧 Token1 (%s): depositado `%.2f`, retirado `%.2f`, fees `%.2f`\n"+
+			"📈 Ticks: atual `%d`, faixa [`%d`, `%d`]\n"+
+			"💵 Preço estimado de Token1: `$%.4f`",
+		p.Token0Symbol, p.DepositedToken0, p.WithdrawnToken0, p.CollectedFees0,
+		p.Token1Symbol, p.DepositedToken1, p.WithdrawnToken1, p.CollectedFees1,
+		p.CurrentTick, p.TickLower, p.TickUpper,
+		p.Token1USDPrice,
+	)
 }

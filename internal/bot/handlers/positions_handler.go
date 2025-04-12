@@ -57,30 +57,56 @@ func buildPositionField(p graphql.PositionRaw, address, network string) *discord
 	}
 }
 
-func buildDetailedField(p graphql.PositionDetailed) *discordgo.MessageEmbedField {
-	liquidity := toFloat(p.Liquidity)
+func buildDetailedField(p graphql.PositionDetailed, userID string) *discordgo.MessageEmbed {
+	poolData := pools.BuildPoolDataFromPosition(p)
+	summary := pools.FormatPoolSummary(poolData)
 
-	return &discordgo.MessageEmbedField{
-		Name: fmt.Sprintf("📘 Posição Detalhada ID: `%s`", p.ID),
-		Value: fmt.Sprintf(
-			"💧 **Liquidez:** `%.2f`\n"+
-				"📊 **Ticks:** [%s → %s] | **Atual:** %s\n"+
-				"💹 **Fee Tier:** `%s`\n"+
-				"🪙 **Pool:** `%s/%s`\n"+
-				"💰 **Depósitos:** token0 `%.4f`, token1 `%.4f`\n"+
-				"💸 **Retiradas:** token0 `%.4f`, token1 `%.4f`\n"+
-				"🏦 **Taxas Coletadas:** token0 `%.4f`, token1 `%.4f`\n",
-			liquidity,
-			p.TickLower.TickIdx, p.TickUpper.TickIdx, p.Pool.Tick,
+	return &discordgo.MessageEmbed{
+		Title: fmt.Sprintf("📘 Posição: %s/%s | Fee: %s",
+			p.Pool.Token0.Symbol,
+			p.Pool.Token1.Symbol,
 			p.Pool.FeeTier,
-			p.Pool.Token0.Symbol, p.Pool.Token1.Symbol,
-			toFloat(p.DepositedToken0), toFloat(p.DepositedToken1),
-			toFloat(p.WithdrawnToken0), toFloat(p.WithdrawnToken1),
-			toFloat(p.CollectedFeesToken0), toFloat(p.CollectedFeesToken1),
 		),
-		Inline: false,
+		Description: fmt.Sprintf("👤 Usuário: <@%s>", userID),
+		Color:       detailedEmbedColor,
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   fmt.Sprintf("📊 Resumo da Posição ID: `%s`", p.ID),
+				Value:  summary,
+				Inline: false,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "Detalhes obtidos via Subgraph da Uniswap v3",
+		},
 	}
 }
+
+func buildOutOfRangeField(p graphql.PositionDetailed, userID string) *discordgo.MessageEmbed {
+	poolData := pools.BuildPoolDataFromPosition(p)
+	summary := pools.FormatPoolSummary(poolData)
+
+	return &discordgo.MessageEmbed{
+		Title: fmt.Sprintf("🟥 FORA DO INTERVALO: %s/%s | Fee: %s",
+			p.Pool.Token0.Symbol,
+			p.Pool.Token1.Symbol,
+			p.Pool.FeeTier,
+		),
+		Description: fmt.Sprintf("👤 Usuário: <@%s>\n⚠️ Esta posição **não está ativa** no momento. O preço atual está fora da faixa definida.", userID),
+		Color:       0xf44336, // vermelho
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   fmt.Sprintf("📊 Resumo da Posição ID: `%s`", p.ID),
+				Value:  summary,
+				Inline: false,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "Detalhes obtidos via Subgraph da Uniswap v3",
+		},
+	}
+}
+
 // ListPositionsCommand envia ao usuário do Discord o resumo das posições de liquidez armazenadas.
 func ListPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	filePath := fmt.Sprintf("data/pools/%s.json", m.Author.ID)
@@ -196,51 +222,64 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 		raw := graphql.QueryPositions(position.Address, position.Network)
 
 		if len(raw) == 0 || raw[0] != '{' {
+			log.Printf("⚠️ Resposta inválida do subgraph para %s na %s", position.Address, position.Network)
 			continue
 		}
 
 		var res graphql.SubgraphResponse
 		if err := json.Unmarshal([]byte(raw), &res); err != nil {
+			log.Printf("⚠️ Erro ao fazer unmarshal para %s: %v", position.Address, err)
 			continue
 		}
 
 		for _, pos := range res.Data.Positions {
 			if isClosed(pos.Liquidity) {
+				log.Printf("🔒 Posição %s está fechada (liquidez: %s)", pos.ID, pos.Liquidity)
 				continue
 			}
 
 			detailRaw := graphql.QueryPositionByID(pos.ID, position.Network)
 			if len(detailRaw) == 0 || detailRaw[0] != '{' {
+				log.Printf("⚠️ Falha ao buscar detalhes da posição %s", pos.ID)
 				continue
 			}
 
 			var detail graphql.SubgraphPositionByIDResponse
 			if err := json.Unmarshal([]byte(detailRaw), &detail); err != nil {
+				log.Printf("⚠️ Erro ao parsear detalhes da posição %s: %v", pos.ID, err)
 				continue
 			}
 
 			if detail.Data.Position.ID == "" {
+				log.Printf("⚠️ Dados da posição %s vieram vazios", pos.ID)
 				continue
 			}
 
-			field := buildDetailedField(detail.Data.Position)
+			posDetail := detail.Data.Position
 
-			// Criar um embed individual por pool
-			embed := &discordgo.MessageEmbed{
-				Title: fmt.Sprintf("📘 Posição: %s/%s | Fee: %s",
-					detail.Data.Position.Pool.Token0.Symbol,
-					detail.Data.Position.Pool.Token1.Symbol,
-					detail.Data.Position.Pool.FeeTier,
-				),
-				Description: fmt.Sprintf("👤 Usuário: <@%s>", m.Author.ID),
-				Color:       detailedEmbedColor,
-				Fields:      []*discordgo.MessageEmbedField{field},
-				Footer: &discordgo.MessageEmbedFooter{
-					Text: "Detalhes obtidos via Subgraph da Uniswap v3",
-				},
+			tick, err1 := strconv.Atoi(posDetail.Pool.Tick)
+			tickLower, err2 := strconv.Atoi(posDetail.TickLower.TickIdx)
+			tickUpper, err3 := strconv.Atoi(posDetail.TickUpper.TickIdx)
+
+			if err1 != nil || err2 != nil || err3 != nil {
+				log.Printf("❌ Erro ao converter ticks (ID: %s): %v %v %v", posDetail.ID, err1, err2, err3)
+				continue
 			}
 
-			s.ChannelMessageSendEmbed(m.ChannelID, embed)
+			var embed *discordgo.MessageEmbed
+
+			if tick < tickLower || tick > tickUpper {
+				log.Printf("🔺 FORA DO INTERVALO: ID %s (Tick atual: %d | Faixa: %d ~ %d)", posDetail.ID, tick, tickLower, tickUpper)
+				embed = buildOutOfRangeField(posDetail, m.Author.ID)
+			} else {
+				log.Printf("✅ DENTRO DO INTERVALO: ID %s (Tick atual: %d | Faixa: %d ~ %d)", posDetail.ID, tick, tickLower, tickUpper)
+				embed = buildDetailedField(posDetail, m.Author.ID)
+			}
+
+			// Envia o embed, seja dentro ou fora do intervalo
+			if embed != nil {
+				s.ChannelMessageSendEmbed(m.ChannelID, embed)
+			}
 		}
 	}
 }
