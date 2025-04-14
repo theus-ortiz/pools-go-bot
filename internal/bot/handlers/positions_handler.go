@@ -29,6 +29,22 @@ func isClosed(liquidity string) bool {
 	return math.Abs(liq) < 0.000001
 }
 
+func loadUserPools(userID string) (pools.UserPools, error) {
+	filePath := fmt.Sprintf("data/pools/%s.json", userID)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return pools.UserPools{}, err
+	}
+	var userPools pools.UserPools
+	if err := json.Unmarshal(data, &userPools); err != nil {
+		return pools.UserPools{}, err
+	}
+	if userPools.Owner != userID {
+		return pools.UserPools{}, fmt.Errorf("usuário não autorizado")
+	}
+	return userPools, nil
+}
+
 func buildPositionField(p graphql.PositionRaw, address, network string) *discordgo.MessageEmbedField {
 	dep0 := toFloat(p.DepositedToken0)
 	dep1 := toFloat(p.DepositedToken1)
@@ -109,24 +125,9 @@ func buildOutOfRangeField(p graphql.PositionDetailed, userID string) *discordgo.
 
 // ListPositionsCommand envia ao usuário do Discord o resumo das posições de liquidez armazenadas.
 func ListPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	filePath := fmt.Sprintf("data/pools/%s.json", m.Author.ID)
-
-	data, err := os.ReadFile(filePath)
+	userPools, err := loadUserPools(m.Author.ID)
 	if err != nil {
-		log.Println("Erro ao ler arquivo JSON:", err)
-		s.ChannelMessageSend(m.ChannelID, "❌ Não encontrei posições salvas para sua conta.")
-		return
-	}
-
-	var userPools pools.UserPools
-	if err := json.Unmarshal(data, &userPools); err != nil {
-		log.Println("Erro ao fazer parse do JSON:", err)
-		s.ChannelMessageSend(m.ChannelID, "❌ Erro ao interpretar os dados do seu perfil.")
-		return
-	}
-
-	if userPools.Owner != m.Author.ID {
-		s.ChannelMessageSend(m.ChannelID, "❌ Você não possui posições cadastradas.")
+		s.ChannelMessageSend(m.ChannelID, "❌ "+err.Error())
 		return
 	}
 
@@ -199,24 +200,12 @@ func ListPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	filePath := fmt.Sprintf("data/pools/%s.json", m.Author.ID)
-
-	data, err := os.ReadFile(filePath)
+	userPools, err := loadUserPools(m.Author.ID)
 	if err != nil {
-		s.ChannelMessageSend(m.ChannelID, "❌ Não encontrei posições salvas para sua conta.")
+		s.ChannelMessageSend(m.ChannelID, "❌ "+err.Error())
 		return
 	}
 
-	var userPools pools.UserPools
-	if err := json.Unmarshal(data, &userPools); err != nil {
-		s.ChannelMessageSend(m.ChannelID, "❌ Erro ao interpretar os dados do seu perfil.")
-		return
-	}
-
-	if userPools.Owner != m.Author.ID {
-		s.ChannelMessageSend(m.ChannelID, "❌ Você não possui posições cadastradas.")
-		return
-	}
 
 	for _, position := range userPools.Positions {
 		raw := graphql.QueryPositions(position.Address, position.Network)
