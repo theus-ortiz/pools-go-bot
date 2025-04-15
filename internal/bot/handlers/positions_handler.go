@@ -24,6 +24,7 @@ func toFloat(s string) float64 {
 	return f
 }
 
+
 func isClosed(liquidity string) bool {
 	liq := toFloat(liquidity)
 	return math.Abs(liq) < 0.000001
@@ -206,7 +207,6 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 		return
 	}
 
-
 	for _, position := range userPools.Positions {
 		raw := graphql.QueryPositions(position.Address, position.Network)
 
@@ -250,7 +250,8 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 			tickLower, err2 := strconv.Atoi(posDetail.TickLower.TickIdx)
 			tickUpper, err3 := strconv.Atoi(posDetail.TickUpper.TickIdx)
 
-			if err1 != nil || err2 != nil || err3 != nil {
+
+			if err2 != nil || err3 != nil {
 				log.Printf("❌ Erro ao converter ticks (ID: %s): %v %v %v", posDetail.ID, err1, err2, err3)
 				continue
 			}
@@ -262,6 +263,7 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 				embed = buildOutOfRangeField(posDetail, m.Author.ID)
 			} else {
 				log.Printf("✅ DENTRO DO INTERVALO: ID %s (Tick atual: %d | Faixa: %d ~ %d)", posDetail.ID, tick, tickLower, tickUpper)
+				fmt.Printf("Tick atual recebido: %v\n", posDetail.Pool.Tick)
 				embed = buildDetailedField(posDetail, m.Author.ID)
 			}
 
