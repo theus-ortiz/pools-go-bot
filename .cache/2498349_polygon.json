@@ -1,0 +1,4 @@
+{
+  "data": "{\"data\":{\"position\":{\"collectedFeesToken0\":\"0\",\"collectedFeesToken1\":\"0\",\"depositedToken0\":\"8.703613\",\"depositedToken1\":\"0.656600212629470351\",\"id\":\"2498349\",\"liquidity\":\"62224572442864\",\"pool\":{\"feeTier\":\"3000\",\"id\":\"0xc42bf5cd16d9eb1e892b66bb32a3892dcb7bb75c\",\"sqrtPrice\":\"6823657384774648818505177768147222\",\"tick\":\"227282\",\"token0\":{\"decimals\":\"6\",\"symbol\":\"USDC\"},\"token1\":{\"decimals\":\"18\",\"symbol\":\"AAVE\"}},\"tickLower\":{\"tickIdx\":\"224460\"},\"tickUpper\":{\"tickIdx\":\"227340\"},\"withdrawnToken0\":\"0\",\"withdrawnToken1\":\"0\"}}}",
+  "expires_at": "2025-04-15T22:25:04.8507386-03:00"
+}

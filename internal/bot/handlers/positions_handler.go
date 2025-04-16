@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/theus-ortiz/pools-bot/internal/graphql"
@@ -23,7 +24,6 @@ func toFloat(s string) float64 {
 	}
 	return f
 }
-
 
 func isClosed(liquidity string) bool {
 	liq := toFloat(liquidity)
@@ -62,7 +62,7 @@ func buildPositionField(p graphql.PositionRaw, address, network string) *discord
 	return &discordgo.MessageEmbedField{
 		Name: fmt.Sprintf("🔸 Posição ID: `%s`", p.ID),
 		Value: fmt.Sprintf(
-			"🧠 **Status:** %s\n"+
+			"🧐 **Status:** %s\n"+
 				"📍 **Endereço:** `%s`\n"+
 				"🌐 **Rede:** `%s`\n"+
 				"💧 **Token0:** depositado `%.2f` | retirado `%.2f`\n"+
@@ -104,13 +104,13 @@ func buildOutOfRangeField(p graphql.PositionDetailed, userID string) *discordgo.
 	summary := pools.FormatPoolSummary(poolData)
 
 	return &discordgo.MessageEmbed{
-		Title: fmt.Sprintf("🟥 FORA DO INTERVALO: %s/%s | Fee: %s",
+		Title: fmt.Sprintf("🛑 FORA DO INTERVALO: %s/%s | Fee: %s",
 			p.Pool.Token0.Symbol,
 			p.Pool.Token1.Symbol,
 			p.Pool.FeeTier,
 		),
 		Description: fmt.Sprintf("👤 Usuário: <@%s>\n⚠️ Esta posição **não está ativa** no momento. O preço atual está fora da faixa definida.", userID),
-		Color:       0xf44336, // vermelho
+		Color:       0xf44336,
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   fmt.Sprintf("📊 Resumo da Posição ID: `%s`", p.ID),
@@ -124,8 +124,9 @@ func buildOutOfRangeField(p graphql.PositionDetailed, userID string) *discordgo.
 	}
 }
 
-// ListPositionsCommand envia ao usuário do Discord o resumo das posições de liquidez armazenadas.
 func ListPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	os.MkdirAll(".cache", os.ModePerm)
+
 	userPools, err := loadUserPools(m.Author.ID)
 	if err != nil {
 		s.ChannelMessageSend(m.ChannelID, "❌ "+err.Error())
@@ -136,7 +137,13 @@ func ListPositionsCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var closedFields []*discordgo.MessageEmbedField
 
 	for _, position := range userPools.Positions {
-		rawData := graphql.QueryPositions(position.Address, position.Network)
+		rawData, ok := getCachedRaw(position.Address, position.Network)
+		if !ok {
+			rawData = graphql.QueryPositions(position.Address, position.Network)
+			if len(rawData) > 0 && rawData[0] == '{' {
+				setCacheRaw(position.Address, position.Network, rawData, 5*time.Minute)
+			}
+		}
 
 		if len(rawData) == 0 || rawData[0] != '{' {
 			openFields = append(openFields, &discordgo.MessageEmbedField{
@@ -208,7 +215,13 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 	}
 
 	for _, position := range userPools.Positions {
-		raw := graphql.QueryPositions(position.Address, position.Network)
+		raw, ok := getCachedRaw(position.Address, position.Network)
+		if !ok {
+			raw = graphql.QueryPositions(position.Address, position.Network)
+			if len(raw) > 0 && raw[0] == '{' {
+				setCacheRaw(position.Address, position.Network, raw, 5*time.Minute)
+			}
+		}
 
 		if len(raw) == 0 || raw[0] != '{' {
 			log.Printf("⚠️ Resposta inválida do subgraph para %s na %s", position.Address, position.Network)
@@ -227,7 +240,14 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 				continue
 			}
 
-			detailRaw := graphql.QueryPositionByID(pos.ID, position.Network)
+			detailRaw, ok := getCachedRaw(pos.ID, position.Network)
+			if !ok {
+				detailRaw = graphql.QueryPositionByID(pos.ID, position.Network)
+				if len(detailRaw) > 0 && detailRaw[0] == '{' {
+					setCacheRaw(pos.ID, position.Network, detailRaw, 5*time.Minute)
+				}
+			}
+
 			if len(detailRaw) == 0 || detailRaw[0] != '{' {
 				log.Printf("⚠️ Falha ao buscar detalhes da posição %s", pos.ID)
 				continue
@@ -246,13 +266,18 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 
 			posDetail := detail.Data.Position
 
-			tick, err1 := strconv.Atoi(posDetail.Pool.Tick)
-			tickLower, err2 := strconv.Atoi(posDetail.TickLower.TickIdx)
-			tickUpper, err3 := strconv.Atoi(posDetail.TickUpper.TickIdx)
+			// Acesse os valores de TickIdx diretamente.
+			tick, err := strconv.Atoi(posDetail.Pool.Tick)
+			if err != nil {
+				log.Printf("❌ Erro ao converter Tick (ID: %s): %v", posDetail.ID, err)
+				continue
+			}
 
+			tickLower, err1 := strconv.Atoi(posDetail.TickLower.TickIdx)
+			tickUpper, err2 := strconv.Atoi(posDetail.TickUpper.TickIdx)
 
-			if err2 != nil || err3 != nil {
-				log.Printf("❌ Erro ao converter ticks (ID: %s): %v %v %v", posDetail.ID, err1, err2, err3)
+			if err1 != nil || err2 != nil {
+				log.Printf("❌ Erro ao converter os ticks (ID: %s): %v %v", posDetail.ID, err1, err2)
 				continue
 			}
 
@@ -263,11 +288,9 @@ func ListDetailedPositionsCommand(s *discordgo.Session, m *discordgo.MessageCrea
 				embed = buildOutOfRangeField(posDetail, m.Author.ID)
 			} else {
 				log.Printf("✅ DENTRO DO INTERVALO: ID %s (Tick atual: %d | Faixa: %d ~ %d)", posDetail.ID, tick, tickLower, tickUpper)
-				fmt.Printf("Tick atual recebido: %v\n", posDetail.Pool.Tick)
 				embed = buildDetailedField(posDetail, m.Author.ID)
 			}
 
-			// Envia o embed, seja dentro ou fora do intervalo
 			if embed != nil {
 				s.ChannelMessageSendEmbed(m.ChannelID, embed)
 			}
